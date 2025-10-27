@@ -251,74 +251,185 @@ export class TradingMonitor {
     try {
       this.logger.info('生成初始持仓报告');
       
-      const positions = data.positions || [];
+      const rawData = data.raw_data || {};
+      const accountTotals = rawData.accountTotals || [];
       
-      // 过滤监控的模型
-      let filteredPositions = positions;
-      if (this.monitoredModels && this.monitoredModels.length > 0) {
-        filteredPositions = positions.filter((p: any) => 
-          this.monitoredModels!.includes(p.id)
-        );
+      // 过滤监控的模型，并只保留最新的数据
+      const latestModels: { [key: string]: any } = {};
+      for (const account of accountTotals) {
+        const modelId = account.model_id;
+        if (this.monitoredModels && this.monitoredModels.length > 0) {
+          if (!this.monitoredModels.includes(modelId)) {
+            continue;
+          }
+        }
+        
+        // 只保留最新的时间戳数据
+        if (!latestModels[modelId] || account.timestamp > latestModels[modelId].timestamp) {
+          latestModels[modelId] = account;
+        }
       }
       
-      if (filteredPositions.length === 0) {
+      const filteredModels = Object.values(latestModels);
+      
+      if (filteredModels.length === 0) {
         this.logger.info('没有监控的模型有持仓');
         return;
       }
       
       // 生成报告内容
       const contentLines = [
-        '📊 *初始持仓报告*',
+        '📊 最新持仓报告',
         '',
         `⏰ 时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`,
-        `🤖 监控模型数: ${filteredPositions.length}`,
+        `🤖 监控模型数: ${filteredModels.length}`,
         ''
       ];
       
-      for (const model of filteredPositions) {
-        const modelId = model.id;
+      for (const model of filteredModels) {
+        const modelId = model.model_id;
         const modelPositions = model.positions || {};
         const positionCount = Object.keys(modelPositions).length;
+        const totalEquity = model.dollar_equity || 0;
+        const totalUnrealizedPnl = model.total_unrealized_pnl || 0;
         
         const modelLink = `https://nof1.ai/models/${modelId}`;
-        contentLines.push(`🤖 *${modelId}* [查看](${modelLink})`);
+        contentLines.push(`━━━━━━━━━━━━━━━━━`);
+        contentLines.push(`🤖 ${modelId}`);
+        contentLines.push(`🔗 ${modelLink}`);
+        contentLines.push('');
+        contentLines.push(`💰 总资产: $${totalEquity.toFixed(2)}`);
         
         if (positionCount === 0) {
-          contentLines.push('  ℹ️ 暂无持仓');
+          contentLines.push('');
+          contentLines.push('ℹ️ 暂无持仓');
+          contentLines.push(`💵 现金占比: 100.00%`);
         } else {
-          contentLines.push(`  📈 持仓数: ${positionCount}`);
+          const pnlEmoji = totalUnrealizedPnl >= 0 ? '💚' : '❤️';
+          const pnlSign = totalUnrealizedPnl >= 0 ? '+' : '';
+          contentLines.push(`${pnlEmoji} 浮动盈亏: ${pnlSign}${totalUnrealizedPnl.toFixed(2)} USDT`);
+          contentLines.push('');
           
-          for (const [symbol, pos] of Object.entries(modelPositions) as [string, any][]) {
+          // 计算总保证金
+          let totalMargin = 0;
+          for (const pos of Object.values(modelPositions) as any[]) {
+            totalMargin += pos.margin || 0;
+          }
+          
+          const cashAmount = totalEquity - totalMargin;
+          const cashRatio = (cashAmount / totalEquity) * 100;
+          
+          contentLines.push(`📊 持仓数量: ${positionCount}个`);
+          contentLines.push(`💵 现金: $${cashAmount.toFixed(2)} (${cashRatio.toFixed(2)}%)`);
+          contentLines.push('');
+          
+          // 按保证金占比排序
+          const sortedPositions = Object.entries(modelPositions)
+            .map(([symbol, pos]: [string, any]) => ({
+              symbol,
+              ...pos
+            }))
+            .sort((a: any, b: any) => (b.margin || 0) - (a.margin || 0));
+          
+          for (const pos of sortedPositions) {
+            const symbol = pos.symbol;
             const quantity = pos.quantity || 0;
             const leverage = pos.leverage || 1;
-            const entryPrice = pos.entry_price || 0;
             const currentPrice = pos.current_price || 0;
+            const margin = pos.margin || 0;
             const unrealizedPnl = pos.unrealized_pnl || 0;
             
-            const direction = quantity > 0 ? '📈 多' : '📉 空';
-            const pnlEmoji = unrealizedPnl >= 0 ? '💚' : '❤️';
+            // 计算名义价值和占比
+            const notionalValue = Math.abs(quantity) * currentPrice;
+            const marginRatio = (margin / totalEquity) * 100;
             
-            contentLines.push(`  ${direction} *${symbol}*`);
-            contentLines.push(`    数量: ${Math.abs(quantity)} | 杠杆: ${leverage}x`);
-            contentLines.push(`    进入: ${entryPrice.toFixed(2)} | 当前: ${currentPrice.toFixed(2)}`);
-            contentLines.push(`    ${pnlEmoji} 浮盈: ${unrealizedPnl.toFixed(2)} USDT`);
+            const direction = quantity > 0 ? '多' : '空';
+            const directionEmoji = quantity > 0 ? '📈' : '📉';
+            const pnlEmoji = unrealizedPnl >= 0 ? '💚' : '❤️';
+            const pnlSign = unrealizedPnl >= 0 ? '+' : '';
+            
+            contentLines.push(`${directionEmoji} ${symbol} ${direction} ${leverage}x`);
+            contentLines.push(`   持仓: ${Math.abs(quantity).toFixed(4)} ($${notionalValue.toFixed(2)})`);
+            contentLines.push(`   占比: ${marginRatio.toFixed(2)}% (保证金 $${margin.toFixed(2)})`);
+            contentLines.push(`   ${pnlEmoji} 浮盈: ${pnlSign}${unrealizedPnl.toFixed(2)}`);
+            contentLines.push('');
           }
         }
         
         contentLines.push('');
       }
       
-      contentLines.push('✅ 监控系统已启动，后续将监控持仓变化');
+      contentLines.push('━━━━━━━━━━━━━━━━━');
+      contentLines.push('✅ 监控系统已启动');
+      contentLines.push('📢 后续将实时监控持仓变化');
       
-      const message = contentLines.join('\n');
+      let message = contentLines.join('\n');
       
-      // 发送报告
+      // 检查消息长度，Telegram 限制为 4096 字符
+      const MAX_LENGTH = 4000; // 留一些余量
+      if (message.length > MAX_LENGTH) {
+        this.logger.warn(`消息过长 (${message.length} 字符)，进行简化处理`);
+        // 简化版本：只显示模型和持仓概要
+        const simplifiedLines = [
+          '📊 最新持仓报告（简化版）',
+          '',
+          `⏰ 时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`,
+          `🤖 监控模型数: ${filteredModels.length}`,
+          ''
+        ];
+        
+        for (const model of filteredModels) {
+          const modelId = model.model_id;
+          const modelPositions = model.positions || {};
+          const positionCount = Object.keys(modelPositions).length;
+          const totalEquity = model.dollar_equity || 0;
+          const totalUnrealizedPnl = model.total_unrealized_pnl || 0;
+          const modelLink = `https://nof1.ai/models/${modelId}`;
+          
+          simplifiedLines.push(`━━━━━━━━━━━━━━━━━`);
+          simplifiedLines.push(`🤖 ${modelId}`);
+          simplifiedLines.push(`🔗 ${modelLink}`);
+          simplifiedLines.push(`💰 总资产: $${totalEquity.toFixed(2)}`);
+          
+          if (positionCount > 0) {
+            const pnlEmoji = totalUnrealizedPnl >= 0 ? '💚' : '❤️';
+            const pnlSign = totalUnrealizedPnl >= 0 ? '+' : '';
+            simplifiedLines.push(`${pnlEmoji} 浮盈: ${pnlSign}${totalUnrealizedPnl.toFixed(2)}`);
+            
+            // 计算总保证金和现金占比
+            let totalMargin = 0;
+            for (const pos of Object.values(modelPositions) as any[]) {
+              totalMargin += pos.margin || 0;
+            }
+            const cashAmount = totalEquity - totalMargin;
+            const cashRatio = (cashAmount / totalEquity) * 100;
+            
+            simplifiedLines.push(`📊 持仓: ${positionCount}个`);
+            simplifiedLines.push(`💵 现金: ${cashRatio.toFixed(2)}%`);
+            
+            const symbols = Object.keys(modelPositions).join(', ');
+            simplifiedLines.push(`💼 币种: ${symbols}`);
+          } else {
+            simplifiedLines.push(`💵 现金占比: 100.00%`);
+          }
+          simplifiedLines.push('');
+        }
+        
+        simplifiedLines.push('━━━━━━━━━━━━━━━━━');
+        simplifiedLines.push('✅ 监控系统已启动');
+        simplifiedLines.push('📢 后续将实时监控持仓变化');
+        simplifiedLines.push('');
+        simplifiedLines.push('ℹ️ 详细持仓信息请访问上方链接查看');
+        
+        message = simplifiedLines.join('\n');
+      }
+      
+      // 发送报告 - 不使用 Markdown，使用纯文本避免格式问题
       const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
       const messageData = {
         chat_id: this.chatId,
         text: message,
-        parse_mode: 'Markdown',
-        disable_web_page_preview: false
+        disable_web_page_preview: true
       };
       
       const response = await axios.post(url, messageData, {
@@ -330,6 +441,7 @@ export class TradingMonitor {
         this.logger.info('初始持仓报告发送成功');
       } else {
         this.logger.warn('初始持仓报告发送失败');
+        this.logger.error(`Telegram API 响应: ${JSON.stringify(response.data)}`);
       }
     } catch (error) {
       this.logger.error(`发送初始持仓报告时发生错误: ${error}`);
@@ -342,6 +454,14 @@ export class TradingMonitor {
   async testNotification(): Promise<boolean> {
     this.logger.info('测试通知功能');
     return await this.notifier.sendTestMessage();
+  }
+
+  /**
+   * 执行一次监控任务（用于测试）
+   */
+  async runOnce(): Promise<void> {
+    this.logger.info('手动执行一次监控任务');
+    await this.monitorTask();
   }
 }
 

@@ -172,8 +172,3 @@ MIT License
 
 本项目仅供学习和研究使用，不构成投资建议。加密货币交易存在高风险，使用本系统的风险由用户自行承担。
 
-## 联系方式
-
-- GitHub Issues: [提交问题](https://github.com/okay456okay/nof1.ai.monitor/issues)
-- Twitter: [@okay456okay](https://x.com/okay456okay)
-- 微信公众号：远见拾贝

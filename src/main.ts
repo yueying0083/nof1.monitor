@@ -7,10 +7,12 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import { setupLogging } from './logger';
 import { TradingMonitor } from './trading_monitor';
+import { TelegramBot } from './telegram_bot';
 
 interface Config {
   telegramBotToken: string;
   telegramChatId: string;
+  telegramAdminIds?: string[];
   monitoredModels?: string[];
   apiUrl: string;
   logLevel: string;
@@ -50,9 +52,19 @@ function loadConfig(): Config {
       .filter(m => m.length > 0);
   }
 
+  const adminIdsStr = process.env.TELEGRAM_ADMIN_IDS || '';
+  let telegramAdminIds: string[] | undefined;
+  if (adminIdsStr) {
+    telegramAdminIds = adminIdsStr
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+  }
+
   const config: Config = {
     telegramBotToken,
     telegramChatId,
+    telegramAdminIds,
     monitoredModels,
     apiUrl: process.env.API_URL || 'https://nof1.ai/api/account-totals',
     logLevel: process.env.LOG_LEVEL || 'INFO',
@@ -67,12 +79,16 @@ function loadConfig(): Config {
  */
 function parseArgs(): {
   test: boolean;
+  botOnly: boolean;
+  enableBot: boolean;
   logLevel: string;
   config?: string;
 } {
   const args = process.argv.slice(2);
   const result = {
     test: false,
+    botOnly: false,
+    enableBot: false,
     logLevel: 'INFO',
     config: undefined as string | undefined
   };
@@ -81,6 +97,11 @@ function parseArgs(): {
     const arg = args[i];
     if (arg === '--test') {
       result.test = true;
+    } else if (arg === '--bot-only') {
+      result.botOnly = true;
+      result.enableBot = true;
+    } else if (arg === '--enable-bot') {
+      result.enableBot = true;
     } else if (arg === '--log-level' && i + 1 < args.length) {
       result.logLevel = args[i + 1].toUpperCase();
       i++;
@@ -96,9 +117,17 @@ AI交易监控系统
 
 选项:
   --test              测试通知功能
+  --enable-bot        启动监控系统并同时启用 Bot 交互功能
+  --bot-only          只启动 Bot 功能，不启动自动监控
   --log-level LEVEL   设置日志级别 (DEBUG, INFO, WARNING, ERROR)
   --config PATH       指定配置文件路径
   -h, --help          显示帮助信息
+
+Bot 使用说明:
+  启动 Bot 后，可以在 Telegram 中使用以下命令：
+  /report - 查看所有模型持仓报告
+  /report <模型名> - 查看指定模型持仓
+  /help - 查看帮助信息
 `);
       process.exit(0);
     }
@@ -157,17 +186,75 @@ async function main() {
       process.exit(0);
     }
 
+    // Bot 模式
+    if (args.botOnly) {
+      logger.info('启动 Bot 模式（仅交互功能）');
+      console.log('🤖 Telegram Bot 启动中...');
+      console.log('📱 可以在 Telegram 中发送命令查询持仓');
+      console.log('⏹️  按 Ctrl+C 停止 Bot');
+
+      const bot = new TelegramBot(
+        config.telegramBotToken,
+        config.telegramChatId,
+        config.apiUrl,
+        logger,
+        config.monitoredModels,
+        config.telegramAdminIds
+      );
+
+      process.on('SIGINT', () => {
+        console.log('\n👋 Bot 正在关闭...');
+        bot.stop();
+        setTimeout(() => {
+          process.exit(0);
+        }, 1000);
+      });
+
+      process.on('SIGTERM', () => {
+        logger.info('收到SIGTERM信号，关闭 Bot');
+        bot.stop();
+        setTimeout(() => {
+          process.exit(0);
+        }, 1000);
+      });
+
+      await bot.start();
+
+      // 保持进程运行
+      await new Promise(() => {});
+      return;
+    }
+
     // 启动监控
     logger.info('开始启动监控系统...');
     console.log('🚀 AI交易监控系统已启动');
     console.log('📊 系统将每分钟检查一次持仓变化');
     console.log('📱 如有交易变化将发送 Telegram 通知');
+    
+    // 可选启动 Bot
+    let bot: TelegramBot | null = null;
+    if (args.enableBot) {
+      console.log('🤖 同时启用 Telegram Bot 交互功能');
+      bot = new TelegramBot(
+        config.telegramBotToken,
+        config.telegramChatId,
+        config.apiUrl,
+        logger,
+        config.monitoredModels,
+        config.telegramAdminIds
+      );
+      await bot.start();
+    }
+    
     console.log('⏹️  按 Ctrl+C 停止监控');
 
     // 处理进程退出信号
     process.on('SIGINT', () => {
       console.log('\n👋 监控系统正在关闭...');
       monitor.stopMonitoring();
+      if (bot) {
+        bot.stop();
+      }
       setTimeout(() => {
         process.exit(0);
       }, 1000);
@@ -176,6 +263,9 @@ async function main() {
     process.on('SIGTERM', () => {
       logger.info('收到SIGTERM信号，关闭监控系统');
       monitor.stopMonitoring();
+      if (bot) {
+        bot.stop();
+      }
       setTimeout(() => {
         process.exit(0);
       }, 1000);

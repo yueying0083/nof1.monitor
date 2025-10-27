@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
+    "start:bot": "node dist/main.js --enable-bot",
+    "bot": "node dist/main.js --bot-only",
     "dev": "ts-node src/main.ts",
     "test": "node dist/main.js --test",
     "watch": "tsc --watch",

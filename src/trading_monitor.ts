@@ -19,6 +19,7 @@ export class TradingMonitor {
   private notifier: TelegramNotifier;
   private logger: Logger;
   private job?: schedule.Job;
+  private isFirstRun: boolean = true;
 
   constructor(
     apiUrl: string,
@@ -67,6 +68,13 @@ export class TradingMonitor {
       const lastData = this.positionFetcher.loadPositions('last.json');
       if (!lastData) {
         this.logger.info('首次运行，无历史数据可比较');
+        
+        // 首次运行，发送当前持仓报告
+        if (this.isFirstRun) {
+          await this.sendInitialPositionReport(currentData);
+          this.isFirstRun = false;
+        }
+        
         // 将当前数据重命名为历史数据，为下次比较做准备
         this.positionFetcher.renameCurrentToLast();
         this.logger.info('监控任务执行完成（首次运行）');
@@ -233,6 +241,98 @@ export class TradingMonitor {
       this.logger.info('错误通知发送成功');
     } catch (error) {
       this.logger.error(`发送错误通知时发生错误: ${error}`);
+    }
+  }
+
+  /**
+   * 发送初始持仓报告
+   */
+  private async sendInitialPositionReport(data: any): Promise<void> {
+    try {
+      this.logger.info('生成初始持仓报告');
+      
+      const positions = data.positions || [];
+      
+      // 过滤监控的模型
+      let filteredPositions = positions;
+      if (this.monitoredModels && this.monitoredModels.length > 0) {
+        filteredPositions = positions.filter((p: any) => 
+          this.monitoredModels!.includes(p.id)
+        );
+      }
+      
+      if (filteredPositions.length === 0) {
+        this.logger.info('没有监控的模型有持仓');
+        return;
+      }
+      
+      // 生成报告内容
+      const contentLines = [
+        '📊 *初始持仓报告*',
+        '',
+        `⏰ 时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`,
+        `🤖 监控模型数: ${filteredPositions.length}`,
+        ''
+      ];
+      
+      for (const model of filteredPositions) {
+        const modelId = model.id;
+        const modelPositions = model.positions || {};
+        const positionCount = Object.keys(modelPositions).length;
+        
+        const modelLink = `https://nof1.ai/models/${modelId}`;
+        contentLines.push(`🤖 *${modelId}* [查看](${modelLink})`);
+        
+        if (positionCount === 0) {
+          contentLines.push('  ℹ️ 暂无持仓');
+        } else {
+          contentLines.push(`  📈 持仓数: ${positionCount}`);
+          
+          for (const [symbol, pos] of Object.entries(modelPositions) as [string, any][]) {
+            const quantity = pos.quantity || 0;
+            const leverage = pos.leverage || 1;
+            const entryPrice = pos.entry_price || 0;
+            const currentPrice = pos.current_price || 0;
+            const unrealizedPnl = pos.unrealized_pnl || 0;
+            
+            const direction = quantity > 0 ? '📈 多' : '📉 空';
+            const pnlEmoji = unrealizedPnl >= 0 ? '💚' : '❤️';
+            
+            contentLines.push(`  ${direction} *${symbol}*`);
+            contentLines.push(`    数量: ${Math.abs(quantity)} | 杠杆: ${leverage}x`);
+            contentLines.push(`    进入: ${entryPrice.toFixed(2)} | 当前: ${currentPrice.toFixed(2)}`);
+            contentLines.push(`    ${pnlEmoji} 浮盈: ${unrealizedPnl.toFixed(2)} USDT`);
+          }
+        }
+        
+        contentLines.push('');
+      }
+      
+      contentLines.push('✅ 监控系统已启动，后续将监控持仓变化');
+      
+      const message = contentLines.join('\n');
+      
+      // 发送报告
+      const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
+      const messageData = {
+        chat_id: this.chatId,
+        text: message,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: false
+      };
+      
+      const response = await axios.post(url, messageData, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000
+      });
+      
+      if (response.data.ok) {
+        this.logger.info('初始持仓报告发送成功');
+      } else {
+        this.logger.warn('初始持仓报告发送失败');
+      }
+    } catch (error) {
+      this.logger.error(`发送初始持仓报告时发生错误: ${error}`);
     }
   }
 

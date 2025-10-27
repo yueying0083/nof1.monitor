@@ -144,10 +144,10 @@ export class TradingMonitor {
       if (response.data.ok) {
         this.logger.info('启动通知发送成功');
       } else {
-        this.logger.warning('启动通知发送失败');
+        this.logger.warn('启动通知发送失败');
       }
     } catch (error) {
-      this.logger.warning(`发送启动通知时发生错误: ${error}`);
+      this.logger.warn(`发送启动通知时发生错误: ${error}`);
     }
 
     // 设置定时任务 - 每分钟执行一次
@@ -168,7 +168,7 @@ export class TradingMonitor {
     }
 
     this.sendShutdownNotification().catch((error) => {
-      this.logger.warning(`发送关闭通知失败: ${error}`);
+      this.logger.warn(`发送关闭通知失败: ${error}`);
     });
   }
 
@@ -199,14 +199,15 @@ export class TradingMonitor {
 
       this.logger.info('关闭通知发送成功');
     } catch (error) {
-      this.logger.warning(`发送关闭通知时发生错误: ${error}`);
+      this.logger.warn(`发送关闭通知时发生错误: ${error}`);
     }
   }
 
   /**
    * 发送错误通知
+   * @param errorMessage 错误信息
    */
-  private async sendErrorNotification(errorMessage: string): Promise<void> {
+  async sendErrorNotification(errorMessage: string): Promise<void> {
     try {
       const errorNotification = [
         '❌ *AI交易监控系统错误*',

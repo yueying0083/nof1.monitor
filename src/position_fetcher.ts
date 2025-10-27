@@ -2,7 +2,7 @@
  * 持仓数据获取模块
  * 负责从API获取持仓数据并保存到本地文件
  */
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Logger } from 'winston';
@@ -46,12 +46,10 @@ export interface ConvertedData {
 }
 
 export class PositionDataFetcher {
-  private apiUrl: string;
   private saveHistoryData: boolean;
   private logger: Logger;
 
-  constructor(apiUrl: string, saveHistoryData: boolean, logger: Logger) {
-    this.apiUrl = apiUrl;
+  constructor(_apiUrl: string, saveHistoryData: boolean, logger: Logger) {
     this.saveHistoryData = saveHistoryData;
     this.logger = logger;
   }
@@ -163,7 +161,7 @@ export class PositionDataFetcher {
 
       // 检查是否为空数据
       if (accountTotals.length === 0) {
-        this.logger.warning('API返回空数据，跳过本次检测');
+        this.logger.warn('API返回空数据，跳过本次检测');
         return null;
       }
 
@@ -258,7 +256,7 @@ export class PositionDataFetcher {
   loadPositions(filename: string): ConvertedData | null {
     try {
       if (!fs.existsSync(filename)) {
-        this.logger.warning(`文件 ${filename} 不存在`);
+        this.logger.warn(`文件 ${filename} 不存在`);
         return null;
       }
 
@@ -287,7 +285,7 @@ export class PositionDataFetcher {
         this.logger.info('current.json 已重命名为 last.json');
         return true;
       } else {
-        this.logger.warning('current.json 文件不存在，无法重命名');
+        this.logger.warn('current.json 文件不存在，无法重命名');
         return false;
       }
     } catch (error) {

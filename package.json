@@ -1,0 +1,39 @@
+{
+  "name": "nof1-ai-monitor",
+  "version": "1.0.0",
+  "description": "监控 nof1.ai Alpha Arena AI大模型加密货币交易行为的通知系统",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "test": "node dist/main.js --test",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "nof1.ai",
+    "crypto",
+    "trading",
+    "monitor",
+    "wechat"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "node-schedule": "^2.1.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/node-schedule": "^2.1.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
+

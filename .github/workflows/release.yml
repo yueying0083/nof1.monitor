@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: 安装依赖
+      run: npm ci
+
+    - name: 编译 TypeScript
+      run: npm run build
+
+    - name: 创建发布包
+      run: |
+        mkdir -p release
+        cp -r dist release/
+        cp package.json package-lock.json release/
+        cp README.md LICENSE release/
+        cp env.example release/
+        cd release && tar -czf ../nof1-ai-monitor-${{ github.ref_name }}.tar.gz *
+
+    - name: 创建 GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: nof1-ai-monitor-${{ github.ref_name }}.tar.gz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
